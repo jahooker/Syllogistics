@@ -6,7 +6,7 @@ type Term = String  -- requires (Show, Eq)
 data Quantifier
   = A {- universal  affirmative -} | E {- universal  negative -}
   | I {- particular affirmative -} | O {- particular negative -}
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Enum)
 
 isUniversal :: Quantifier -> Bool
 isUniversal q = q == A || q == E
@@ -42,25 +42,17 @@ isQuantifierNegative    = isNegative    . quantifier
 isQuantifierAffirmative = isAffirmative . quantifier
 
 isSubjectDistributed :: CatProp -> Bool
-isSubjectDistributed (CatProp q _ _) = case q of
-  A -> True
-  E -> True
-  I -> False
-  O -> False
+isSubjectDistributed (CatProp q _ _) = q `elem` [A, E]
 -- isSubjectDistributed = isUniversal . quantifier
 
 isPredicateDistributed :: CatProp -> Bool
-isPredicateDistributed (CatProp q _ _) = case q of
-  A -> False  -- allegedly
-  E -> True
-  I -> False
-  O -> True   -- allegedly
--- isSubjectDistributed = isNegative . quantifier
+isPredicateDistributed (CatProp q _ _) = q `elem` [E, O {- allegedly -}]
+-- isPredicateDistributed = isNegative . quantifier
 
 data Figure
   = Figure1 {- MxP && SxM <= SxP -} | Figure2 {- PxM && SxM <= SxP -}
   | Figure3 {- MxP && MxS <= SxP -} | Figure4 {- PxM && MxS <= SxP -}
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Enum)
 
 data Syllogism
   = Syllogism Figure Quantifier Quantifier Quantifier Term Term Term
@@ -106,6 +98,41 @@ equivalent x y = conclusion x == conclusion y
         minX = minorPremise x
         minY = minorPremise y
 
+majorPremiseEntailsMajorTermNonEmpty syl = case figure syl of
+  Figure1 -> entailsPredicateNonEmpty
+  Figure2 -> entailsSubjectNonEmpty
+  Figure3 -> entailsPredicateNonEmpty
+  Figure4 -> entailsSubjectNonEmpty
+  $ quantifier $ majorPremise syl
+
+minorPremiseEntailsMinorTermNonEmpty syl = case figure syl of
+  Figure1 -> entailsSubjectNonEmpty
+  Figure2 -> entailsSubjectNonEmpty
+  Figure3 -> entailsPredicateNonEmpty
+  Figure4 -> entailsPredicateNonEmpty
+  $ quantifier $ minorPremise syl
+
+majorPremiseEntailsMiddleTermSubsetOfMajorTerm syl =
+  let sub = CatProp A in
+  majorPremise syl == middleTerm syl `sub` majorTerm syl
+
+minorPremiseEntailsMiddleTermSubsetOfMinorTerm syl =
+  let sub = CatProp A in
+  minorPremise syl == middleTerm syl `sub` minorTerm syl
+
+premisesEntailMiddleTermNonEmpty syl =
+  any (`entailsNotEmpty` middleTerm syl) $ [majorPremise, minorPremise] <*> [syl]
+
+premisesEntailMinorTermSubsetOfMajorTerm syl =
+  let sub = CatProp A
+      [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl] in
+  all (`elem` [majorPremise syl, minorPremise syl]) [min `sub` mid, mid `sub` maj]
+
+premisesEntailMajorTermSubsetOfMinorTerm syl =
+  let sub = CatProp A
+      [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl] in
+  all (`elem` [majorPremise syl, minorPremise syl]) [maj `sub` mid, mid `sub` min]
+
 barbara   = Syllogism Figure1 A A A
 celarent  = Syllogism Figure1 E A E
 darii     = Syllogism Figure1 A I I
@@ -135,22 +162,15 @@ fesapo    = Syllogism Figure4 E A O
 bamalip   = Syllogism Figure4 A A I
 
 valid_syllogisms = [
-  -- Figure1
-  barbara, celarent,  darii,    ferio,    -- barbari,  celaront,
-  -- Figure2
-  cesare,  camestres, festino,  baroco,   -- cesaro,   camestros,
-  -- Figure3
-  datisi,  disamis,   ferison,  bocardo,  -- felapton, darapti,
-  -- Figure4
-  calemes, dimatis,   fresison, calemos   -- fesapo,   bamalip,
-  ]
+  barbara, celarent,  darii,    ferio,   barbari,  celaront,   -- Figure1
+  cesare,  camestres, festino,  baroco,  cesaro,   camestros,  -- Figure2
+  datisi,  disamis,   ferison,  bocardo, felapton, darapti,    -- Figure3
+  calemes, dimatis,   fresison, calemos, fesapo,   bamalip]    -- Figure4
 
 -- 4 * 4 * 4 * 4 = 256
 syllogistic_forms = [
-  Syllogism f q r s | f <- [Figure1, Figure2, Figure3, Figure4],
-                      q <- [A, E, I, O],
-                      r <- [A, E, I, O],
-                      s <- [A, E, I, O]]
+  Syllogism f q r s | f <- [Figure1 .. Figure4],
+                      q <- [A .. O], r <- [A .. O], s <- [A .. O]]
 
 instantiate :: (String -> String -> String -> Syllogism) -> Syllogism
 instantiate f = f "S" "M" "P"
@@ -330,48 +350,28 @@ existentialAssumption (Syllogism f q r s _ _ _)
           (Figure4, A, A, I)]
 
 existentialAssumption' :: Syllogism -> Bool
-existentialAssumption' syl@(Syllogism f _ _ _ _ _ _)
+existentialAssumption' syl
   -- The conclusion must be an I-type or an O-type proposition.
   -- I-type propositions entail the existence of the subject and predicate terms.
   -- O-type propositions entail the existence of the subject term.
   -- "entail" == "cannot be true without"
-  = (conclusionEntailsMajorTermNonEmpty && not premisesEntailMajorTermNonEmpty
-  || conclusionEntailsMinorTermNonEmpty && not premisesEntailMinorTermNonEmpty)
+  = (conclusionEntailsMajorTermNonEmpty syl && not (premisesEntailMajorTermNonEmpty syl)
+  || conclusionEntailsMinorTermNonEmpty syl && not (premisesEntailMinorTermNonEmpty syl))
   && isValid syl
-  where [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl]
-        premises = [majorPremise, minorPremise] <*> [syl]
-        conclusionEntailsMinorTermNonEmpty
-          = ($ quantifier (conclusion syl)) entailsSubjectNonEmpty   
+  where conclusionEntailsMinorTermNonEmpty
+          = entailsSubjectNonEmpty . quantifier . conclusion
         conclusionEntailsMajorTermNonEmpty
-          = ($ quantifier (conclusion syl)) entailsPredicateNonEmpty
-        majorPremiseEntailsMajorTermNonEmpty
-          = ($ quantifier (majorPremise syl)) $ case f of
-            Figure1 -> entailsPredicateNonEmpty
-            Figure2 -> entailsSubjectNonEmpty
-            Figure3 -> entailsPredicateNonEmpty
-            Figure4 -> entailsSubjectNonEmpty
-        minorPremiseEntailsMinorTermNonEmpty
-          = ($ quantifier (minorPremise syl)) $ case f of
-            Figure1 -> entailsSubjectNonEmpty
-            Figure2 -> entailsSubjectNonEmpty
-            Figure3 -> entailsPredicateNonEmpty
-            Figure4 -> entailsPredicateNonEmpty
-        premisesEntailMajorTermNonEmpty = majorPremiseEntailsMajorTermNonEmpty
-          || minorPremiseEntailsMinorTermNonEmpty && premisesEntailMinorTermSubsetOfMajorTerm
-          || premisesEntailMiddleTermNonEmpty     && majorPremiseEntailsMiddleTermSubsetOfMajorTerm
-        premisesEntailMinorTermNonEmpty = minorPremiseEntailsMinorTermNonEmpty
-          || majorPremiseEntailsMajorTermNonEmpty && premisesEntailMajorTermSubsetOfMinorTerm
-          || premisesEntailMiddleTermNonEmpty     && minorPremiseEntailsMiddleTermSubsetOfMinorTerm
-        premisesEntailMinorTermSubsetOfMajorTerm = let (<=) = CatProp A in
-          all (`elem` premises) [min <= mid, mid <= maj]
-        premisesEntailMajorTermSubsetOfMinorTerm = let (<=) = CatProp A in
-          all (`elem` premises) [maj <= mid, mid <= min]
-        premisesEntailMiddleTermNonEmpty = any (`entailsNotEmpty` mid) premises
-        majorPremiseEntailsMiddleTermSubsetOfMajorTerm
-          = f `elem` [Figure1, Figure3] && quantifier (majorPremise syl) == A
-        minorPremiseEntailsMiddleTermSubsetOfMinorTerm
-          = f `elem` [Figure3, Figure4] && quantifier (minorPremise syl) == A
+          = entailsPredicateNonEmpty . quantifier . conclusion
+        premisesEntailMajorTermNonEmpty syl = majorPremiseEntailsMajorTermNonEmpty syl
+          || minorPremiseEntailsMinorTermNonEmpty syl && premisesEntailMinorTermSubsetOfMajorTerm       syl
+          || premisesEntailMiddleTermNonEmpty     syl && majorPremiseEntailsMiddleTermSubsetOfMajorTerm syl
+        premisesEntailMinorTermNonEmpty syl = minorPremiseEntailsMinorTermNonEmpty syl
+          || majorPremiseEntailsMajorTermNonEmpty syl && premisesEntailMajorTermSubsetOfMinorTerm       syl
+          || premisesEntailMiddleTermNonEmpty     syl && minorPremiseEntailsMiddleTermSubsetOfMinorTerm syl
 
 isPermutation :: Eq a => [a] -> [a] -> Bool
 isPermutation (x:xs) ys = x `elem` ys && xs `isPermutation` delete x ys
 isPermutation [    ] ys = null ys
+
+-- all (\syl -> existentialAssumption syl == existentialAssumption' syl)
+--   $ instantiate <$> syllogistic_forms

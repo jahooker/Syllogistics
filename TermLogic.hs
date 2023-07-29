@@ -1,3 +1,5 @@
+module TermLogic where
+
 import Data.List (delete)
 
 type Term = String  -- requires (Show, Eq)
@@ -28,8 +30,8 @@ entailsSubjectNonEmpty q = q == I || q == O
 entailsPredicateNonEmpty :: Quantifier -> Bool
 entailsPredicateNonEmpty q = q == I
 
-entailsNotEmpty :: CatProp -> Term -> Bool
-entailsNotEmpty (CatProp q s p) x
+entailsNonEmpty :: CatProp -> Term -> Bool
+entailsNonEmpty (CatProp q s p) x
   =  x == s && entailsSubjectNonEmpty   q
   || x == p && entailsPredicateNonEmpty q
 
@@ -112,26 +114,26 @@ minorPremiseEntailsMinorTermNonEmpty syl = case figure syl of
   Figure4 -> entailsPredicateNonEmpty
   $ quantifier $ minorPremise syl
 
+sub = CatProp A
+
 majorPremiseEntailsMiddleTermSubsetOfMajorTerm syl =
-  let sub = CatProp A in
   majorPremise syl == middleTerm syl `sub` majorTerm syl
 
 minorPremiseEntailsMiddleTermSubsetOfMinorTerm syl =
-  let sub = CatProp A in
   minorPremise syl == middleTerm syl `sub` minorTerm syl
 
 premisesEntailMiddleTermNonEmpty syl =
-  any (`entailsNotEmpty` middleTerm syl) $ [majorPremise, minorPremise] <*> [syl]
+  any (`entailsNonEmpty` middleTerm syl) $ [majorPremise, minorPremise] <*> [syl]
 
 premisesEntailMinorTermSubsetOfMajorTerm syl =
-  let sub = CatProp A
-      [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl] in
-  all (`elem` [majorPremise syl, minorPremise syl]) [min `sub` mid, mid `sub` maj]
+  let [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl]
+      premises = [majorPremise, minorPremise] <*> [syl] in
+  all (`elem` premises) [min `sub` mid, mid `sub` maj]
 
 premisesEntailMajorTermSubsetOfMinorTerm syl =
-  let sub = CatProp A
-      [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl] in
-  all (`elem` [majorPremise syl, minorPremise syl]) [maj `sub` mid, mid `sub` min]
+  let [min, mid, maj] = [minorTerm, middleTerm, majorTerm] <*> [syl]
+      premises = [majorPremise, minorPremise] <*> [syl] in
+  all (`elem` premises) [maj `sub` mid, mid `sub` min]
 
 barbara   = Syllogism Figure1 A A A
 celarent  = Syllogism Figure1 E A E
@@ -249,89 +251,46 @@ isMinorTermDistributedInConclusion = isSubjectDistributed . conclusion
 -- According to the rule of "undistributed middle",
 -- a valid syllogism must have its middle term distributed in at least one premise.
 isMiddleTermDistributed :: Syllogism -> Bool
-isMiddleTermDistributed syl
-  =  isMiddleTermDistributedInMajorPremise syl
-  || isMiddleTermDistributedInMinorPremise syl
-
--- Verify the law of undistributed middle
-test_undistributed_middle = and
-  $ (isMiddleTermDistributed . instantiate) <$> valid_syllogisms
-
--- Which invalid syllogisms are not explained by the law of undistributed middle?
-not_explained_by_undistributed_middle = length
-  $ filter isMiddleTermDistributed $ filter (not . valid)
-  $ instantiate <$> syllogistic_forms
-  where valid syl = syl `elem` (instantiate <$> valid_syllogisms)
-
--- Which invalid syllogisms break the law of undistributed middle?
-examples_of_undistributed_middle
-  = filter (not . isMiddleTermDistributed) $ invalid_syllogisms
-  where invalid_syllogisms = filter (not . valid) $ instantiate <$> syllogistic_forms
-        valid syl = syl `elem` (instantiate <$> valid_syllogisms)
-
--- Which valid syllogisms break the law of undistributed middle?
-counterexamples_to_undistributed_middle
-  = filter (not . isMiddleTermDistributed) $ instantiate <$> valid_syllogisms
-
-check_number_of_syllogisms = do
-  let n = length syllogistic_forms
-  let status = n == 256
-  putStrLn $ "There are " ++ show n ++ " different kinds of syllogism. " ++ show status
-  return status
-
-check_number_of_valid_syllogisms = do
-  let n = length $ filter isValidSyllogism $ instantiate <$> syllogistic_forms
-  let status = n == 16
-  putStrLn $ "There are " ++ show n ++ " valid kinds of syllogism. " ++ show status
-  return status
-
-checks = do
-  status <- check_number_of_syllogisms
-  if not status then return status else check_number_of_valid_syllogisms
+isMiddleTermDistributed = isMiddleTermDistributedInMajorPremise
+                      ||| isMiddleTermDistributedInMinorPremise
 
 -- The major term is undistributed in the major premise but distributed in the conclusion.
 illicitMajor :: Syllogism -> Bool
-illicitMajor syl
-  =       isMajorTermDistributedInConclusion   syl
-  && not (isMajorTermDistributedInMajorPremise syl)
+illicitMajor = isMajorTermDistributedInConclusion
+     &&& not . isMajorTermDistributedInMajorPremise
 
 -- The minor term is undistributed in the minor premise but distributed in the conclusion.
 illicitMinor :: Syllogism -> Bool
-illicitMinor syl
-  =       isMinorTermDistributedInConclusion   syl
-  && not (isMinorTermDistributedInMinorPremise syl)
-
--- with existential assumption
-testvalid = filter isValid $ instantiate <$> syllogistic_forms
+illicitMinor = isMinorTermDistributedInConclusion
+     &&& not . isMinorTermDistributedInMinorPremise
 
 isValid :: Syllogism -> Bool
-isValid syl = isMiddleTermDistributed syl
-  && not (illicitMajor       syl)
-  && not (illicitMinor       syl)
-  && not (illicitAffirmative syl)
-  && not (illicitNegative    syl)
-  && not (exclusivePremises  syl)
+isValid = isMiddleTermDistributed
+  &&& not . illicitMajor
+  &&& not . illicitMinor
+  &&& not . illicitAffirmative
+  &&& not . illicitNegative
+  &&& not . exclusivePremises
 
 -- The fallacy of "exclusive premises" is committed
 -- when both premises of a syllogism are negative.
 exclusivePremises :: Syllogism -> Bool
-exclusivePremises syl = isQuantifierNegative maj && isQuantifierNegative min
-  where maj = majorPremise syl
-        min = minorPremise syl
+exclusivePremises = isQuantifierNegative . majorPremise
+                &&& isQuantifierNegative . minorPremise
 
 -- The fallacy of "negative conclusion from affirmative premises" is committed
 -- when a syllogism has a negative conclusion but two affirmative premises.
 illicitAffirmative :: Syllogism -> Bool
-illicitAffirmative syl =  isQuantifierNegative    (conclusion   syl)
-                       && isQuantifierAffirmative (majorPremise syl)
-                       && isQuantifierAffirmative (minorPremise syl)
+illicitAffirmative =  isQuantifierNegative    . conclusion
+                  &&& isQuantifierAffirmative . majorPremise
+                  &&& isQuantifierAffirmative . minorPremise
 
 -- The fallacy of "illicit negative" is committed
 -- when a syllogism has an affirmative conclusion and a negative premise.
 illicitNegative :: Syllogism -> Bool
-illicitNegative syl =   isQuantifierAffirmative (conclusion   syl)
-                    && (isQuantifierNegative    (majorPremise syl)
-                    ||  isQuantifierNegative    (minorPremise syl))
+illicitNegative = isQuantifierAffirmative . conclusion
+             &&& (isQuantifierNegative    . majorPremise
+             |||  isQuantifierNegative    . minorPremise)
 
 -- 9 of the 24 valid syllogistic forms are only conditionally valid.
 -- To reach the conclusion, one must assume that one of the terms is not empty.
@@ -349,25 +308,22 @@ existentialAssumption (Syllogism f q r s _ _ _)
         assumesMajorTermNonEmpty  = fqrs `elem` [
           (Figure4, A, A, I)]
 
+-- The conclusion entails that one of the terms is not empty,
+-- but the premises do not carry this entailment.
 existentialAssumption' :: Syllogism -> Bool
-existentialAssumption' syl
-  -- The conclusion must be an I-type or an O-type proposition.
-  -- I-type propositions entail the existence of the subject and predicate terms.
-  -- O-type propositions entail the existence of the subject term.
-  -- "entail" == "cannot be true without"
-  = (conclusionEntailsMajorTermNonEmpty syl && not (premisesEntailMajorTermNonEmpty syl)
-  || conclusionEntailsMinorTermNonEmpty syl && not (premisesEntailMinorTermNonEmpty syl))
-  && isValid syl
+existentialAssumption' = isValid
+  &&& (conclusionEntailsMajorTermNonEmpty &&& not . premisesEntailMajorTermNonEmpty
+  |||  conclusionEntailsMinorTermNonEmpty &&& not . premisesEntailMinorTermNonEmpty)
   where conclusionEntailsMinorTermNonEmpty
           = entailsSubjectNonEmpty . quantifier . conclusion
         conclusionEntailsMajorTermNonEmpty
           = entailsPredicateNonEmpty . quantifier . conclusion
-        premisesEntailMajorTermNonEmpty syl = majorPremiseEntailsMajorTermNonEmpty syl
-          || minorPremiseEntailsMinorTermNonEmpty syl && premisesEntailMinorTermSubsetOfMajorTerm       syl
-          || premisesEntailMiddleTermNonEmpty     syl && majorPremiseEntailsMiddleTermSubsetOfMajorTerm syl
-        premisesEntailMinorTermNonEmpty syl = minorPremiseEntailsMinorTermNonEmpty syl
-          || majorPremiseEntailsMajorTermNonEmpty syl && premisesEntailMajorTermSubsetOfMinorTerm       syl
-          || premisesEntailMiddleTermNonEmpty     syl && minorPremiseEntailsMiddleTermSubsetOfMinorTerm syl
+        premisesEntailMajorTermNonEmpty = majorPremiseEntailsMajorTermNonEmpty
+          ||| minorPremiseEntailsMinorTermNonEmpty &&& premisesEntailMinorTermSubsetOfMajorTerm
+          ||| premisesEntailMiddleTermNonEmpty     &&& majorPremiseEntailsMiddleTermSubsetOfMajorTerm
+        premisesEntailMinorTermNonEmpty = minorPremiseEntailsMinorTermNonEmpty
+          ||| majorPremiseEntailsMajorTermNonEmpty &&& premisesEntailMajorTermSubsetOfMinorTerm
+          ||| premisesEntailMiddleTermNonEmpty     &&& minorPremiseEntailsMiddleTermSubsetOfMinorTerm
 
 isPermutation :: Eq a => [a] -> [a] -> Bool
 isPermutation (x:xs) ys = x `elem` ys && xs `isPermutation` delete x ys
@@ -375,3 +331,11 @@ isPermutation [    ] ys = null ys
 
 -- all (\syl -> existentialAssumption syl == existentialAssumption' syl)
 --   $ instantiate <$> syllogistic_forms
+
+(&&&) :: (t -> Bool) -> (t -> Bool) -> (t -> Bool)
+f &&& g = \x -> f x && g x
+infixr 3 &&&
+
+(|||) :: (t -> Bool) -> (t -> Bool) -> (t -> Bool)
+f ||| g = \x -> f x || g x 
+infixr 2 |||
